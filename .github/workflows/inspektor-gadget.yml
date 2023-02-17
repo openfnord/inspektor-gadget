@@ -218,6 +218,8 @@ jobs:
     name: ig
     # level: 0
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -234,6 +236,10 @@ jobs:
       # ALERT This action must be run after code was checkout otherwise it will
       # not find this file.
       uses: ./.github/actions/install-debian-packages
+    - uses: github/codeql-action/init@v2
+      with:
+        tools: latest
+        languages: go, cpp
     - name: Build ${{ matrix.ig-target }}
       run: |
         if [ "${{ matrix.ig-target}}" = 'ig-linux-arm64' ]; then
@@ -252,6 +258,8 @@ jobs:
           -czf ${{ matrix.ig-target }}.tar.gz -C $platform \
           ig LICENSE
         rm -rf $platform
+    - name: CVE checks for ${{ matrix.local-gadget-target }}
+      uses: github/codeql-action/analyze@v2
     - name: Add ${{ matrix.ig-target }}.tar.gz as artifact.
       uses: actions/upload-artifact@master
       with:
