@@ -224,8 +224,15 @@ func (e *WithMountNsID) GetMountNSID() uint64 {
 
 type WithNetNsID struct {
 	NetNsID uint64 `json:"netnsid,omitempty" column:"netns,template:ns"`
+
+	// HostNetwork is true if the container uses the host network namespace
+	HostNetwork bool `json:"hostNetwork,omitempty" column:"hostNetwork,width:11,fixed,hide"`
 }
 
 func (e *WithNetNsID) GetNetNSID() uint64 {
 	return e.NetNsID
+}
+
+func (e *WithNetNsID) SetHostNetwork(hostNetwork bool) {
+	e.HostNetwork = hostNetwork
 }

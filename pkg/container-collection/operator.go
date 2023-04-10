@@ -31,7 +31,11 @@ func (cc *ContainerCollection) EnrichEventByNetNs(event operators.ContainerInfoF
 	event.SetNode(cc.nodeName)
 
 	containers := cc.LookupContainersByNetns(event.GetNetNSID())
-	if len(containers) == 0 || containers[0].HostNetwork {
+	if len(containers) == 0 {
+		return
+	}
+	if containers[0].HostNetwork {
+		event.SetHostNetwork(true)
 		return
 	}
 	if len(containers) == 1 {

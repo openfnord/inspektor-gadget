@@ -96,6 +96,7 @@ type ContainerInfoFromMountNSID interface {
 type ContainerInfoFromNetNSID interface {
 	ContainerInfoSetters
 	GetNetNSID() uint64
+	SetHostNetwork(bool)
 }
 
 type ContainerInfoSetters interface {
