@@ -16,3 +16,4 @@ package testdata
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target $TARGET -cc clang tcpconnect ./bpf/tcpconnect.c -- -I./bpf/ -I../../../../../${TARGET}
 
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target bpfel -cc clang dns ./bpf/dns.c -- -I./bpf/ -I../../../../internal/socketenricher/bpf
