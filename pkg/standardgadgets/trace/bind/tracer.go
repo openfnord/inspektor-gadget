@@ -19,6 +19,7 @@ import (
 
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/bind/tracer"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/bind/types"
+	_ "github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/trace/byob/tracer"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/standardgadgets/trace"
 	"github.com/vishvananda/netlink"
 )
