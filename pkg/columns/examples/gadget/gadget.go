@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -22,48 +23,62 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns/formatter/textcolumns"
 )
 
-type Kubernetes struct {
-	Node      string `column:"node" columnTags:"kubernetes"`
-	Container string `column:"container" columnTags:"kubernetes"`
-	Pod       string `column:"pod" columnTags:"kubernetes"`
+type K8sMetadata struct {
+	Node          string `column:"node"`
+	PodName       string `column:"podName"`
+	ContainerName string `column:"containerName"`
 }
 
-type Runtime struct {
-	Runtime string `column:"runtime" columnTags:"runtime"`
+type RuntimeMetadata struct {
+	RuntimeName   string `column:"runtimeName"`
+	ContainerID   string `column:"containerID,width:13,maxWidth:64"`
+	ContainerName string `column:"containerName"`
 }
 
 type GadgetData struct {
-	Kubernetes
-	Runtime
-	GadgetData string `column:"gadgetData"`
+	K8sMetadata     `json:"k8sMetadata,inline" column:"k8s" columnTags:"kubernetes"`
+	RuntimeMetadata `json:"runtimeMetadata,inline" column:"runtime" columnTags:"runtime"`
+	GadgetData      string `json:"gadgetData" column:"gadgetData"`
 }
 
 var GadgetOutput = []*GadgetData{
 	{
-		Kubernetes: Kubernetes{
-			Node:      "Node 1",
-			Container: "Container 1",
-			Pod:       "Pod 1",
+		K8sMetadata: K8sMetadata{
+			Node:          "Node 1",
+			ContainerName: "Container 1",
+			PodName:       "Pod 1",
 		},
-		Runtime:    Runtime{Runtime: "Runtime 1"},
+		RuntimeMetadata: RuntimeMetadata{
+			RuntimeName:   "Runtime 1",
+			ContainerName: "Container 1",
+			ContainerID:   "1",
+		},
 		GadgetData: "Data 1",
 	},
 	{
-		Kubernetes: Kubernetes{
-			Node:      "Node 2",
-			Container: "Container 2",
-			Pod:       "Pod 2",
+		K8sMetadata: K8sMetadata{
+			Node:          "Node 2",
+			ContainerName: "Container 2",
+			PodName:       "Pod 2",
 		},
-		Runtime:    Runtime{Runtime: "Runtime 2"},
+		RuntimeMetadata: RuntimeMetadata{
+			RuntimeName:   "Runtime 2",
+			ContainerName: "Container 2",
+			ContainerID:   "2",
+		},
 		GadgetData: "Data 2",
 	},
 	{
-		Kubernetes: Kubernetes{
-			Node:      "Node 3",
-			Container: "Container 3",
-			Pod:       "Pod 3",
+		K8sMetadata: K8sMetadata{
+			Node:          "Node 3",
+			ContainerName: "Container 3",
+			PodName:       "Pod 3",
 		},
-		Runtime:    Runtime{Runtime: "Runtime 3"},
+		RuntimeMetadata: RuntimeMetadata{
+			RuntimeName:   "Runtime 3",
+			ContainerName: "Container 3",
+			ContainerID:   "3",
+		},
 		GadgetData: "Data 3",
 	},
 }
@@ -77,7 +92,7 @@ func main() {
 	cmap := gadgetColumns.GetColumnMap()
 
 	// Get a new formatter and output all data
-	formatter := textcolumns.NewFormatter(cmap, textcolumns.WithAutoScale(false))
+	formatter := textcolumns.NewFormatter(cmap)
 	formatter.WriteTable(os.Stdout, GadgetOutput)
 
 	/*
@@ -90,10 +105,15 @@ func main() {
 
 	fmt.Println()
 
+	// Print JSON output
+	b, _ := json.MarshalIndent(GadgetOutput, "", "  ")
+	fmt.Println(string(b))
+
+	fmt.Println()
+
 	// Leave out kubernetes info for this one, but include gadget data (not-embedded struct) and runtime information
 	formatter = textcolumns.NewFormatter(
 		gadgetColumns.GetColumnMap(columns.Or(columns.WithEmbedded(false), columns.WithTag("runtime"))),
-		textcolumns.WithAutoScale(false),
 	)
 	formatter.WriteTable(os.Stdout, GadgetOutput)
 
