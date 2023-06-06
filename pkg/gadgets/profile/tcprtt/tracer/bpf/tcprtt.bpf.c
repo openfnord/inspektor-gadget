@@ -10,48 +10,108 @@
 #include "bits.bpf.h"
 #include "maps.bpf.h"
 
+/* Taken from kernel include/linux/socket.h. */
+#define AF_INET		2	/* Internet IP Protocol 	*/
+#define AF_INET6	10	/* IP version 6			*/
+
+
 const volatile bool targ_laddr_hist = false;
 const volatile bool targ_raddr_hist = false;
 const volatile __u16 targ_sport = 0;
 const volatile __u16 targ_dport = 0;
 const volatile __u32 targ_saddr = 0;
 const volatile __u32 targ_daddr = 0;
+const volatile __u8 targ_saddr_v6[16] = { 0 };
+const volatile __u8 targ_daddr_v6[16] = { 0 };
 const volatile bool targ_ms = false;
+
+static __u8 zero_addr_v6[16] = { 0 };
 
 #define MAX_ENTRIES	10240
 
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_ENTRIES);
-	__type(key, u32);
+	__type(key, struct hist_key);
 	__type(value, struct hist);
 } hists SEC(".maps");
 
 static struct hist zero;
+
+static bool inline is_not_zero(const volatile __u8 addr[16])
+{
+	return __builtin_memcmp((void *) addr, zero_addr_v6, sizeof zero_addr_v6);
+}
 
 static int handle_tcp_rcv_established(struct sock *sk)
 {
 	const struct inet_sock *inet = (struct inet_sock *)(sk);
 	struct tcp_sock *ts;
 	struct hist *histp;
+	struct hist_key key = { 0 };
 	u64 slot;
-	u32 srtt, key;
+	u32 srtt;
 
 	if (targ_sport && targ_sport != BPF_CORE_READ(inet, inet_sport))
 		return 0;
+
 	if (targ_dport && targ_dport != BPF_CORE_READ(sk, __sk_common.skc_dport))
 		return 0;
-	if (targ_saddr && targ_saddr != BPF_CORE_READ(inet, inet_saddr))
+
+	key.family = BPF_CORE_READ(sk, __sk_common.skc_family);
+	switch (key.family) {
+	case AF_INET:
+		if (targ_saddr && targ_saddr != BPF_CORE_READ(inet, inet_saddr))
+			return 0;
+
+		if (targ_daddr && targ_daddr != BPF_CORE_READ(sk, __sk_common.skc_daddr))
+			return 0;
+
+		/* If we set any of IPv6 address, we do not care of IPv4 ones. */
+		if (is_not_zero(targ_saddr_v6))
+			return 0;
+
+		if (is_not_zero(targ_daddr_v6))
+			return 0;
+
+		break;
+	case AF_INET6:
+		/*
+		 * Reciprocal of the above: if we set any of IPv4 address, we do not care
+		 * about IPv6 ones.
+		 * */
+		if (targ_saddr)
+			return 0;
+
+		if (targ_daddr)
+			return 0;
+
+		if (is_not_zero(targ_saddr_v6)
+		    && !__builtin_memcmp((void *) targ_saddr_v6, BPF_CORE_READ(inet, pinet6, saddr.in6_u.u6_addr8), sizeof targ_saddr_v6))
+			return 0;
+
+		if (is_not_zero((void *) targ_daddr_v6)
+		    && !__builtin_memcmp((void *) targ_daddr_v6, BPF_CORE_READ(sk, __sk_common.skc_v6_daddr.in6_u.u6_addr8), sizeof targ_daddr_v6))
+			return 0;
+
+		break;
+	default:
 		return 0;
-	if (targ_daddr && targ_daddr != BPF_CORE_READ(sk, __sk_common.skc_daddr))
-		return 0;
+	}
 
 	if (targ_laddr_hist)
-		key = BPF_CORE_READ(inet, inet_saddr);
+		if (key.family == AF_INET6)
+			bpf_probe_read_kernel(key.addr, sizeof(BPF_CORE_READ(inet, pinet6, saddr.in6_u.u6_addr32)), BPF_CORE_READ(inet, pinet6, saddr.in6_u.u6_addr32));
+		else
+			bpf_probe_read_kernel(key.addr, sizeof(inet->inet_saddr), &inet->inet_saddr);
 	else if (targ_raddr_hist)
-		key = BPF_CORE_READ(inet, sk.__sk_common.skc_daddr);
+		if (key.family == AF_INET6)
+			bpf_probe_read_kernel(&key.addr, sizeof(sk->__sk_common.skc_v6_daddr.in6_u.u6_addr32), &sk->__sk_common.skc_v6_daddr.in6_u.u6_addr32);
+		else
+			bpf_probe_read_kernel(&key.addr, sizeof(inet->sk.__sk_common.skc_daddr), &inet->sk.__sk_common.skc_daddr);
 	else
-		key = 0;
+		key.family = 0;
+
 	histp = bpf_map_lookup_or_try_init(&hists, &key, &zero);
 	if (!histp)
 		return 0;
