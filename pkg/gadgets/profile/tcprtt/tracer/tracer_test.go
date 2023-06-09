@@ -20,6 +20,7 @@ package tracer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -705,8 +706,8 @@ func TestRunWithResultV6(t *testing.T) {
 		serverPort = 8080
 	)
 
-	serverIP := net.ParseIP("2001:db8::67")
-	clientIP := net.ParseIP("2001:db8::68")
+	serverIP := net.ParseIP("::1")
+	clientIP := net.ParseIP("::1")
 	startTCPServer(t, serverIP, serverPort, 6)
 
 	gadget := &GadgetDesc{}
@@ -1041,11 +1042,27 @@ func TestRunWithResultV6(t *testing.T) {
 	}
 }
 
+func verifyNetError(t *testing.T, err error) {
+	if err == nil {
+		return
+	}
+
+	// If possible, get more detailed information about the error
+	var oPErr *net.OpError
+	if errors.As(err, &oPErr) {
+		require.Nil(t, oPErr.Err)
+	}
+
+	// Make test fail anyway
+	require.Nil(t, err)
+}
+
 func startTCPServer(t *testing.T, serverIP net.IP, serverPort, family int) {
 	t.Helper()
 
-	l, err := net.Listen(fmt.Sprintf("tcp%d", family), fmt.Sprintf("%s:%d", serverIP, serverPort))
-	require.Nil(t, err)
+	// "[]" are required for IPv6 addresses.
+	l, err := net.Listen(fmt.Sprintf("tcp%d", family), fmt.Sprintf("[%s]:%d", serverIP, serverPort))
+	verifyNetError(t, err)
 	require.NotNil(t, l, "expected listener")
 	t.Cleanup(func() {
 		l.Close()
@@ -1101,8 +1118,8 @@ func connectTCPClient(t *testing.T, clientIP net.IP, remoteIP net.IP, remotePort
 			defer wg.Done()
 
 			// ResolveTCPAddr will assign a random port to the client
-			tcpClient, err := net.ResolveTCPAddr(fmt.Sprintf("tcp%d", family), clientIP.String()+":0")
-			require.Nil(t, err)
+			tcpClient, err := net.ResolveTCPAddr(fmt.Sprintf("tcp%d", family), fmt.Sprintf("[%s]:0", clientIP.String()))
+			verifyNetError(t, err)
 			require.NotNil(t, tcpClient)
 
 			tcpRemote := &net.TCPAddr{
@@ -1110,8 +1127,8 @@ func connectTCPClient(t *testing.T, clientIP net.IP, remoteIP net.IP, remotePort
 				Port: remotePort,
 			}
 
-			conn, err := net.DialTCP("tcp4", tcpClient, tcpRemote)
-			require.Nil(t, err)
+			conn, err := net.DialTCP(fmt.Sprintf("tcp%d", family), tcpClient, tcpRemote)
+			verifyNetError(t, err)
 			require.NotNil(t, conn, "expected connection")
 			defer conn.Close()
 
