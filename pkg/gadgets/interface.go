@@ -15,6 +15,7 @@
 package gadgets
 
 import (
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/frontends"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/parser"
 )
@@ -102,6 +103,24 @@ func (of OutputFormats) Append(other OutputFormats) {
 // an entry in the supportedFormats map
 type GadgetOutputFormats interface {
 	OutputFormats() (supportedFormats OutputFormats, defaultFormatKey string)
+}
+
+// GadgetDescCustomParser can be implemented by gadgets that want to provide a custom parser
+// dependent on the parameters and arguments.
+type GadgetDescCustomParser interface {
+	CustomParser(*params.Params, []string) (parser.Parser, error)
+}
+
+type GadgetJsonConverter interface {
+	JsonConverter(params *params.Params, fe frontends.Frontend) func(ev any)
+}
+
+type GadgetJsonPrettyConverter interface {
+	JsonPrettyConverter(params *params.Params, fe frontends.Frontend) func(ev any)
+}
+
+type GadgetYamlConverter interface {
+	YamlConverter(params *params.Params, fe frontends.Frontend) func(ev any)
 }
 
 type EventHandlerSetter interface {

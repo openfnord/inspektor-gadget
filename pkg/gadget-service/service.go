@@ -115,7 +115,6 @@ func (s *Service) RunGadget(runGadget pb.GadgetManager_RunGadgetServer) error {
 	operatorParams := ops.ParamCollection()
 
 	parser := gadgetDesc.Parser()
-
 	runtimeParams := runtime.ParamDescs().ToParams()
 
 	gadgetParamDescs := gadgetDesc.ParamDescs()
@@ -124,6 +123,14 @@ func (s *Service) RunGadget(runGadget pb.GadgetManager_RunGadgetServer) error {
 	err = gadgets.ParamsFromMap(request.Params, gadgetParams, runtimeParams, operatorParams)
 	if err != nil {
 		return fmt.Errorf("setting parameters: %w", err)
+	}
+
+	if c, ok := gadgetDesc.(gadgets.GadgetDescCustomParser); ok {
+		var err error
+		parser, err = c.CustomParser(gadgetParams, request.Args)
+		if err != nil {
+			return fmt.Errorf("calling custom parser: %w", err)
+		}
 	}
 
 	// Create payload buffer

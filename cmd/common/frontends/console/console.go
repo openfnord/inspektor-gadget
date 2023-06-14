@@ -24,8 +24,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/term"
 
-	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/frontends"
 	commonutils "github.com/inspektor-gadget/inspektor-gadget/cmd/common/utils"
+	"github.com/inspektor-gadget/inspektor-gadget/pkg/frontends"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/logger"
 )
 
