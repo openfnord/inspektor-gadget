@@ -163,8 +163,8 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )
 
-// Upstream PR: https://github.com/solo-io/bumblebee/pull/103
-replace github.com/solo-io/bumblebee => github.com/inspektor-gadget/bumblebee v0.0.0-20230504091707-e6577735adb5
+// Code available in https://github.com/inspektor-gadget/bumblebee/tree/gadget
+replace github.com/solo-io/bumblebee => github.com/inspektor-gadget/bumblebee v0.0.0-20230614170934-120a789ac259
 
 replace github.com/cilium/ebpf => github.com/cilium/ebpf v0.0.0-20230406090554-73acad5e3906
 

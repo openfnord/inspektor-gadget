@@ -19,7 +19,7 @@ package tracer
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -42,7 +42,7 @@ import (
 )
 
 const (
-	printMapPrefix = "print_"
+	mntNsIdType = "mnt_ns_id_t"
 )
 
 type Config struct {
@@ -79,30 +79,6 @@ func (g *GadgetDesc) NewInstance() (gadgets.Gadget, error) {
 }
 
 func (t *Tracer) Init(gadgetCtx gadgets.GadgetContext) error {
-	params := gadgetCtx.GadgetParams()
-	if len(params.Get(ProgramContent).AsBytes()) != 0 {
-		t.config.ProgContent = params.Get(ProgramContent).AsBytes()
-	} else {
-		paramsWOFlag := gadgetCtx.Args()
-		if len(paramsWOFlag) != 1 {
-			return fmt.Errorf("expected exactly one argument, got %d", len(paramsWOFlag))
-		}
-
-		param := paramsWOFlag[0]
-		t.config.ProgLocation = param
-		// Download the BPF module
-		byobEbpfPackage, err := t.getByobEbpfPackage()
-		if err != nil {
-			return fmt.Errorf("download byob ebpf package: %w", err)
-		}
-		t.config.ProgContent = byobEbpfPackage.ProgramFileBytes
-	}
-
-	if err := t.installTracer(); err != nil {
-		t.Stop()
-		return fmt.Errorf("install tracer: %w", err)
-	}
-
 	return nil
 }
 
@@ -160,9 +136,10 @@ func (t *Tracer) installTracer() error {
 	}
 
 	mapReplacements := map[string]*ebpf.Map{}
+	consts := map[string]interface{}{}
 
-	// Find the print map
 	for mapName, m := range t.spec.Maps {
+		// Find the print map
 		// TODO: Print maps only with prefix print_ ?
 		if (m.Type == ebpf.RingBuf || m.Type == ebpf.PerfEventArray) && strings.HasPrefix(m.Name, printMapPrefix) {
 			if t.printMap != "" {
@@ -185,9 +162,20 @@ func (t *Tracer) installTracer() error {
 				t.spec.Maps[mapName].ValueSize = 4
 			}
 		}
+
+		// Replace filter by mount ns map
+		if m.Name == gadgets.MntNsFilterMapName {
+			mapReplacements[gadgets.MntNsFilterMapName] = t.config.MountnsMap
+			consts[gadgets.FilterByMntNsName] = true
+		}
+
 	}
 	if t.printMap == "" {
-		return fmt.Errorf("no BPF map with 'print_' prefix found")
+		return fmt.Errorf("no BPF map with %q prefix found", printMapPrefix)
+	}
+
+	if err := t.spec.RewriteConstants(consts); err != nil {
+		return fmt.Errorf("rewriting constants: %w", err)
 	}
 
 	// Load the ebpf objects
@@ -234,6 +222,13 @@ func (t *Tracer) installTracer() error {
 				return fmt.Errorf("attach BPF program %q: %w", progName, err)
 			}
 			t.links = append(t.links, l)
+		} else if p.Type == ebpf.TracePoint && strings.HasPrefix(p.SectionName, "tracepoint/") {
+			parts := strings.Split(p.AttachTo, "/")
+			l, err := link.Tracepoint(parts[0], parts[1], t.collection.Programs[progName], nil)
+			if err != nil {
+				return fmt.Errorf("attach BPF program %q: %w", progName, err)
+			}
+			t.links = append(t.links, l)
 		}
 	}
 
@@ -241,7 +236,40 @@ func (t *Tracer) installTracer() error {
 }
 
 func (t *Tracer) run(gadgetCtx gadgets.GadgetContext) {
-	d := t.decoderFactory()
+	typ := t.valueStruct
+
+	var mntNsIdstart, mntNsIdend uint32
+
+	// we suppose the same data structure is always used, so we can precalculate the offsets for
+	// the mount ns id
+	for _, member := range typ.Members {
+		if member.Type.TypeName() != mntNsIdType {
+			continue
+		}
+
+		typDef, ok := member.Type.(*btf.Typedef)
+		if !ok {
+			continue
+		}
+
+		underlying, err := getUnderlyingType(typDef)
+		if err != nil {
+			continue
+		}
+
+		intM, ok := underlying.(*btf.Int)
+		if !ok {
+			continue
+		}
+
+		if intM.Size != 8 {
+			continue
+		}
+
+		mntNsIdstart = member.Offset.Bytes()
+		mntNsIdend = mntNsIdstart + intM.Size
+	}
+
 	for {
 		var rawSample []byte
 
@@ -273,6 +301,7 @@ func (t *Tracer) run(gadgetCtx gadgets.GadgetContext) {
 			rawSample = record.RawSample
 		}
 
+		// TODO: this check is not valid for all cases. For instance trace exec sends a variable length
 		if uint32(len(rawSample)) < t.mapSizes[t.printMap] {
 			gadgetCtx.Logger().Errorf("read ring buffer: len(RawSample)=%d!=%d",
 				len(rawSample),
@@ -280,38 +309,56 @@ func (t *Tracer) run(gadgetCtx gadgets.GadgetContext) {
 			return
 		}
 
-		// FIXME: DecodeBtfBinary has a bug with non-NULL-terminated strings.
-		// For now, ensure the problem does not happen in ebpf
+		// data will be decoded in the client
+		data := rawSample[:t.mapSizes[t.printMap]]
 
-		result, err := d.DecodeBtfBinary(gadgetCtx.Context(), t.valueStruct, rawSample[:t.mapSizes[t.printMap]])
-		if err != nil {
-			gadgetCtx.Logger().Errorf("decoding btf: %w", err)
-			return
-		}
-		b, err := json.Marshal(result)
-		if err != nil {
-			gadgetCtx.Logger().Errorf("encoding json: %w", err)
-			return
+		// get mnt_ns_id for enriching the event
+		mtn_ns_id := uint64(0)
+		if mntNsIdend != 0 {
+			buf := bytes.NewBuffer(data[mntNsIdstart:mntNsIdend])
+			// TODO: is binary.LittleEndian correct?
+			if err := binary.Read(buf, binary.LittleEndian, &mtn_ns_id); err != nil {
+				continue
+			}
 		}
 
 		event := types.Event{
 			Event: eventtypes.Event{
 				Type: eventtypes.NORMAL,
 			},
-			WithMountNsID: eventtypes.WithMountNsID{MountNsID: 0},
-			Payload:       fmt.Sprintf("%+v", string(b)),
+			WithMountNsID: eventtypes.WithMountNsID{MountNsID: mtn_ns_id},
+			RawData:       data,
 		}
 
-		if mnt_ns_id_str, ok := result["mnt_ns_id"]; ok {
-			if mnt_ns_id, ok := mnt_ns_id_str.(uint64); ok {
-				event.MountNsID = mnt_ns_id
-			}
-		}
 		t.eventCallback(&event)
 	}
 }
 
 func (t *Tracer) Run(gadgetCtx gadgets.GadgetContext) error {
+	params := gadgetCtx.GadgetParams()
+	if len(params.Get(ProgramContent).AsBytes()) != 0 {
+		t.config.ProgContent = params.Get(ProgramContent).AsBytes()
+	} else {
+		paramsWOFlag := gadgetCtx.Args()
+		if len(paramsWOFlag) != 1 {
+			return fmt.Errorf("expected exactly one argument, got %d", len(paramsWOFlag))
+		}
+
+		param := paramsWOFlag[0]
+		t.config.ProgLocation = param
+		// Download the BPF module
+		byobEbpfPackage, err := t.getByobEbpfPackage()
+		if err != nil {
+			return fmt.Errorf("download byob ebpf package: %w", err)
+		}
+		t.config.ProgContent = byobEbpfPackage.ProgramFileBytes
+	}
+
+	if err := t.installTracer(); err != nil {
+		t.Stop()
+		return fmt.Errorf("install tracer: %w", err)
+	}
+
 	go t.run(gadgetCtx)
 	gadgetcontext.WaitForTimeoutOrDone(gadgetCtx)
 

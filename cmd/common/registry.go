@@ -234,7 +234,6 @@ func buildCommandFromGadget(
 				cmd.Flags().Lookup("output").Usage = strings.Join(outputFormatsHelp, "\n") + "\n\n"
 				cmd.Flags().Lookup("output").DefValue = "columns"
 				if showHelp, _ := cmd.Flags().GetBool("help"); showHelp {
-					fmt.Printf("showing help!!!!")
 					return cmd.Help()
 				}
 			}
