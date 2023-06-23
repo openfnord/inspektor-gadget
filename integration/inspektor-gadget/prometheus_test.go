@@ -54,6 +54,7 @@ data:
     global:
       scrape_interval: 1s
       evaluation_interval: 1s
+      query_log_file: /prometheus/query.log
 
     scrape_configs:
      - job_name: "gadget"
@@ -73,6 +74,7 @@ spec:
       image: prom/prometheus:v2.44.0
       args:
         - "--config.file=/etc/prometheus/prometheus.yml"
+        - "--log.level=debug"
       ports:
         - containerPort: 9090
       volumeMounts:
@@ -150,6 +152,10 @@ EOF
 
 					return ExpectEntriesInArrayToMatch(string(prometheusResponse.Data.Result), normalize, expectedEntry)
 				},
+			},
+			{
+				Name: "PrintPrometheusLogs",
+				Cmd:  fmt.Sprintf("kubectl exec -n %s prometheus -- cat /prometheus/query.log", ns),
 			},
 		}
 
