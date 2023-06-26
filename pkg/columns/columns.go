@@ -98,6 +98,10 @@ func (c *Columns[T]) AddFields(fields []DynamicField, base func(*T) unsafe.Point
 			getStart:      base,
 		}
 
+		if f.Attributes.Name == "src" {
+			fmt.Println("beginning :", column.kind, " ", column.columnType, " ", column.rawColumnType)
+		}
+
 		// Copy attributes, if present
 		if f.Attributes != nil {
 			column.Attributes = *f.Attributes
@@ -112,10 +116,18 @@ func (c *Columns[T]) AddFields(fields []DynamicField, base func(*T) unsafe.Point
 			}
 		}
 
+		if f.Attributes.Name == "src" {
+			fmt.Println("after copy:", column.kind, " ", column.columnType, " ", column.rawColumnType)
+		}
+
 		// Apply tag
 		err := column.fromTag(f.Tag)
 		if err != nil {
 			return fmt.Errorf("applying tag: %w", err)
+		}
+
+		if f.Attributes.Name == "src" {
+			fmt.Println("after tag :", column.kind, " ", column.columnType, " ", column.rawColumnType)
 		}
 
 		if column.useTemplate {
@@ -139,6 +151,10 @@ func (c *Columns[T]) AddFields(fields []DynamicField, base func(*T) unsafe.Point
 				return fmt.Errorf("applying template to column %q: %w", name, err)
 			}
 			column.Name = name
+		}
+
+		if f.Attributes.Name == "src" {
+			fmt.Println("after temp:", column.kind, " ", column.columnType, " ", column.rawColumnType)
 		}
 
 		lowerName := strings.ToLower(column.Name)
@@ -477,6 +493,9 @@ func GetFieldFunc[OT any, T any](column ColumnInternals) func(entry *T) OT {
 			panic(fmt.Sprintf("trying to get type %T from virtual column, expected string", tempVar))
 		}
 	}
+	if column.(*Column[T]) != nil && column.(*Column[T]).Name == "src" {
+		fmt.Println("src column")
+	}
 	sub := column.getSubFields()
 	offset := column.getOffset()
 	subLen := len(sub)
@@ -627,7 +646,7 @@ func GetFieldAsStringExt[T any](column ColumnInternals, floatFormat byte, floatP
 		column.(*Column[T]).Type().Size()
 	}
 	return func(entry *T) string {
-		return ""
+		return "asdf"
 	}
 }
 

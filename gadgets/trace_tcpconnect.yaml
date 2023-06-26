@@ -35,5 +35,5 @@ columns:
     visible: true
   - name: task
     template: comm
-    order: 1006
+    order: 1007
     visible: true

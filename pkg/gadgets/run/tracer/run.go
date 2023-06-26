@@ -193,10 +193,8 @@ func getSimpleType(typ btf.Type) reflect.Type {
 	return nil
 }
 
-func (g *GadgetDesc) CustomParser(params *params.Params, args []string) (parser.Parser, error) {
-	if len(args) != 0 {
-		return nil, fmt.Errorf("no arguments expected: received %d", len(args))
-	}
+func (g *GadgetDesc) getDynamicFields(params *params.Params) ([]columns.DynamicField, error) {
+
 	progContent := params.Get(ProgramContent).AsBytes()
 	definitionBytes := params.Get(ParamDefinition).AsBytes()
 	if len(definitionBytes) == 0 {
@@ -207,8 +205,6 @@ func (g *GadgetDesc) CustomParser(params *params.Params, args []string) (parser.
 	if err != nil {
 		return nil, fmt.Errorf("getting value struct: %w", err)
 	}
-
-	cols := types.GetColumns()
 
 	var gadgetDefinition types.GadgetDefinition
 
@@ -234,13 +230,20 @@ func (g *GadgetDesc) CustomParser(params *params.Params, args []string) (parser.
 		switch typedMember := member.Type.(type) {
 		case *btf.Union:
 			if typedMember.Name == "ip_addr" {
-				cols.AddColumn(attrs, func(ev *types.Event) string {
-					// TODO: Handle IPv6
-					offset := uintptr(member.Offset.Bytes())
-					ipSlice := unsafe.Slice(&ev.RawData[offset], 4)
-					ipBytes := make(net.IP, 4)
-					copy(ipBytes, ipSlice)
-					return ipBytes.String()
+				// cols.AddColumn(attrs, func(ev *types.Event) string {
+				// 	// TODO: Handle IPv6
+				// 	offset := uintptr(member.Offset.Bytes())
+				// 	ipSlice := unsafe.Slice(&ev.RawData[offset], 4)
+				// 	ipBytes := make(net.IP, 4)
+				// 	copy(ipBytes, ipSlice)
+				// 	return ipBytes.String()
+				// })
+				fields = append(fields, columns.DynamicField{
+					Attributes: &attrs,
+					Tag:        ",stringer",
+					Offset:     uintptr(member.Offset.Bytes()),
+					Type:       reflect.TypeOf(make(net.IP, 4)),
+					Template:   "ipaddr",
 				})
 				continue
 			}
@@ -261,15 +264,142 @@ func (g *GadgetDesc) CustomParser(params *params.Params, args []string) (parser.
 
 		fields = append(fields, field)
 	}
+	return fields, nil
+}
+
+func (g *GadgetDesc) CustomParser(params *params.Params, args []string) (parser.Parser, error) {
+	if len(args) != 0 {
+		return nil, fmt.Errorf("no arguments expected: received %d", len(args))
+	}
+
+	fields, err := g.getDynamicFields(params)
+	if err != nil {
+		return nil, fmt.Errorf("getting dynamic fields: %w", err)
+	}
 
 	base := func(ev *types.Event) unsafe.Pointer {
 		return unsafe.Pointer(&ev.RawData[0])
 	}
+	cols := types.GetColumns()
 	if err := cols.AddFields(fields, base); err != nil {
 		return nil, fmt.Errorf("adding fields: %w", err)
 	}
 
 	return parser.NewParser[types.Event](cols), nil
+}
+
+func (g *GadgetDesc) genericJsonConverter(params *params.Params, fe frontends.Frontend, convert func(any) ([]byte, error)) func(ev any) {
+	fields, err := g.getDynamicFields(params)
+	if err != nil {
+		fe.Logf(logger.ErrorLevel, "coult not get value struct BTF: %s", err)
+		return nil
+	}
+
+	progContent := params.Get(ProgramContent).AsBytes()
+	definitionBytes := params.Get(ParamDefinition).AsBytes()
+	if len(definitionBytes) == 0 {
+		fe.Logf(logger.ErrorLevel, "no definition provided")
+		return nil
+	}
+
+	valueStruct, err := getValueStructBTF(progContent)
+	if err != nil {
+		fe.Logf(logger.ErrorLevel, "getting value struct: %w", err)
+		return nil
+	}
+
+	var gadgetDefinition types.GadgetDefinition
+
+	if err := yaml.Unmarshal(definitionBytes, &gadgetDefinition); err != nil {
+		fe.Logf(logger.ErrorLevel, "unmarshaling definition: %w", err)
+		return nil
+	}
+
+	colAttrs := map[string]columns.Attributes{}
+	for _, col := range gadgetDefinition.ColumnsAttrs {
+		colAttrs[col.Name] = col
+	}
+
+	for _, member := range valueStruct.Members {
+		member := member
+		_, ok := colAttrs[member.Name]
+		if !ok {
+			continue
+		}
+
+		switch typedMember := member.Type.(type) {
+		case *btf.Union:
+			if typedMember.Name == "ip_addr" {
+				fields = append(fields, columns.DynamicField{
+					Attributes: &columns.Attributes{
+						Name: member.Name,
+					},
+					Offset:   uintptr(member.Offset.Bytes()),
+					Type:     reflect.TypeOf(make(net.IP, 4)),
+					Template: "ipaddr",
+				})
+				continue
+			}
+		}
+	}
+
+	fe.Logf(logger.WarnLevel, "fields: %s", fields)
+
+	return func(ev any) {
+		event := ev.(*types.Event)
+
+		baseStructJson, err := json.Marshal(event)
+		if err != nil {
+			fe.Logf(logger.WarnLevel, "json marshalling the base event %+v: %s", ev, err)
+			return
+		}
+
+		// TODO: Can this be done without unmarshalling it right after it was marshalled?
+		var m map[string]interface{}
+		err = json.Unmarshal(baseStructJson, &m)
+		if err != nil {
+			fe.Logf(logger.WarnLevel, "unmarshalling the base event %+v: %s", ev, err)
+			return
+		}
+
+		for _, field := range fields {
+			offset := field.Offset
+			attrs := field.Attributes
+			if attrs == nil {
+				continue
+			}
+			fe.Logf(logger.WarnLevel, "   type for %s: %+v", field.Attributes.Name, field.Type)
+			if strings.Contains(field.Template, "ipaddr") {
+				// TODO: Handle IPv6
+				ipBytes := make(net.IP, 4)
+				copy(ipBytes, event.RawData[offset:offset+field.Type.Size()])
+				m[attrs.Name] = ipBytes.String()
+			} else {
+				typeInstance := reflect.New(field.Type).Elem()
+				ptr := unsafe.Pointer(typeInstance.UnsafeAddr())
+				copy((*[1 << 30]byte)(ptr)[:field.Type.Size()], event.RawData[offset:offset+field.Type.Size()])
+				m[attrs.Name] = typeInstance.Interface()
+			}
+		}
+
+		d, err := convert(m)
+		if err != nil {
+			fe.Logf(logger.WarnLevel, "marshalling %+v: %s", ev, err)
+			return
+		}
+		fe.Output(string(d))
+	}
+}
+
+func (g *GadgetDesc) JsonConverter(params *params.Params, fe frontends.Frontend) func(ev any) {
+	return g.genericJsonConverter(params, fe, json.Marshal)
+}
+
+func (g *GadgetDesc) JsonPrettyConverter(params *params.Params, fe frontends.Frontend) func(ev any) {
+	convert := func(ev any) ([]byte, error) {
+		return json.MarshalIndent(ev, "", "  ")
+	}
+	return g.genericJsonConverter(params, fe, convert)
 }
 
 func genericConverter(params *params.Params, fe frontends.Frontend, convert func(any) ([]byte, error)) func(ev any) {
@@ -305,17 +435,6 @@ func genericConverter(params *params.Params, fe frontends.Frontend, convert func
 		}
 		fe.Output(string(d))
 	}
-}
-
-func (g *GadgetDesc) JsonConverter(params *params.Params, fe frontends.Frontend) func(ev any) {
-	return genericConverter(params, fe, json.Marshal)
-}
-
-func (g *GadgetDesc) JsonPrettyConverter(params *params.Params, fe frontends.Frontend) func(ev any) {
-	convert := func(ev any) ([]byte, error) {
-		return json.MarshalIndent(ev, "", "  ")
-	}
-	return genericConverter(params, fe, convert)
 }
 
 func (g *GadgetDesc) YamlConverter(params *params.Params, fe frontends.Frontend) func(ev any) {
