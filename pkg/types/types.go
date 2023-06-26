@@ -201,7 +201,8 @@ func (c *CommonData) GetContainerImageName() string {
 
 type L3Endpoint struct {
 	// Addr is filled by the gadget
-	Addr string `json:"addr,omitempty" column:"addr,hide,template:ipaddr"`
+	Addr    string `json:"addr,omitempty" column:"addr,hide,template:ipaddr"`
+	Version uint8  `json:"version,omitempty" column:"v,hide,template:ipversion"`
 
 	// Namespace, Name, Kind and PodLabels get populated by the KubeIPResolver operator
 	Namespace string            `json:"namespace,omitempty" column:"ns,template:namespace,hide"`
@@ -223,10 +224,25 @@ func (e *L3Endpoint) String() string {
 	}
 }
 
+// ProtoToString converts an IP protocol number to its name.
+// https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
+// TODO: Support other protos
+func ProtoToString(proto uint16) string {
+	switch proto {
+	case 6:
+		return "TCP"
+	case 17:
+		return "UDP"
+	default:
+		return fmt.Sprintf("unknown(%d)", proto)
+	}
+}
+
 type L4Endpoint struct {
 	L3Endpoint
-	// Port is filled by the gadget
-	Port uint16 `json:"port" column:"port,hide,template:ipport"`
+	// Port and Proto are filled by the gadget
+	Port  uint16 `json:"port" column:"port,hide,template:ipport"`
+	Proto uint16 `json:"proto,omitempty" column:"proto,hide,width:4"`
 }
 
 func (e *L4Endpoint) String() string {
