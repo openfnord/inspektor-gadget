@@ -22,10 +22,24 @@ import (
 type Event struct {
 	eventtypes.Event
 	eventtypes.WithMountNsID
+
+	Endpoints      []*eventtypes.L4Endpoint `json:"endpoints,omitempty"`
+	EndpointsNames []string                 `json:"endpointsNames,omitempty"`
+
 	// Raw event sent by the ebpf program
-	RawData []byte `json:"raw_data"`
+	RawData []byte `json:"raw_data,omitempty"`
 	// How to flatten this?
 	Data interface{} `json:"data"`
+}
+
+func (ev *Event) GetEndpoints() []*eventtypes.L3Endpoint {
+	endpoints := make([]*eventtypes.L3Endpoint, len(ev.Endpoints))
+
+	for i, ep := range ev.Endpoints {
+		endpoints[i] = &ep.L3Endpoint
+	}
+
+	return endpoints
 }
 
 func GetColumns() *columns.Columns[Event] {

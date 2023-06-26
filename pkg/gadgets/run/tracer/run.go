@@ -19,8 +19,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"reflect"
+	"strconv"
 	"strings"
 	"unsafe"
 
@@ -37,6 +37,7 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/logger"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/params"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/parser"
+	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/utils/experimental"
 )
 
@@ -46,7 +47,8 @@ const (
 	printMapPrefix  = "print_"
 )
 
-type GadgetDesc struct{}
+type GadgetDesc struct {
+}
 
 func (g *GadgetDesc) Name() string {
 	return "run"
@@ -197,6 +199,53 @@ func getSimpleType(typ btf.Type) reflect.Type {
 	return nil
 }
 
+func addEndpointColumns(
+	cols *columns.Columns[types.Event],
+	name string,
+	getEndpoint func(*types.Event) eventtypes.L4Endpoint,
+) {
+	cols.AddColumn(columns.Attributes{
+		Name:     name + ".namespace",
+		Template: "namespace",
+		Visible:  false,
+	}, func(e *types.Event) string {
+		return getEndpoint(e).Namespace
+	})
+
+	cols.AddColumn(columns.Attributes{
+		Name: name + ".name",
+		//Template: "",
+		Visible: false,
+	}, func(e *types.Event) string {
+		return getEndpoint(e).Name
+	})
+
+	cols.AddColumn(columns.Attributes{
+		Name: name + ".kind",
+		//Template: "",
+		Visible: false,
+	}, func(e *types.Event) string {
+		return string(getEndpoint(e).Kind)
+	})
+
+	cols.AddColumn(columns.Attributes{
+		Name:     name + ".addr",
+		Template: "ipaddr",
+		Visible:  false,
+	}, func(e *types.Event) string {
+		return getEndpoint(e).Addr
+	})
+
+	cols.AddColumn(columns.Attributes{
+		Name:     name + ".port",
+		Template: "ipport",
+		Visible:  false,
+	}, func(e *types.Event) string {
+		p := getEndpoint(e).Port
+		return strconv.FormatUint(uint64(p), 10)
+	})
+}
+
 func (g *GadgetDesc) CustomParser(params *params.Params, args []string) (parser.Parser, error) {
 	if len(args) != 0 {
 		return nil, fmt.Errorf("no arguments expected: received %d", len(args))
@@ -227,25 +276,33 @@ func (g *GadgetDesc) CustomParser(params *params.Params, args []string) (parser.
 
 	fields := []columns.DynamicField{}
 
+	endpointCounter := 0
+
 	for _, member := range valueStruct.Members {
 		member := member
 
 		attrs, ok := colAttrs[member.Name]
 		if !ok {
+			// TODO: Add as hidden?
 			continue
 		}
 
 		switch typedMember := member.Type.(type) {
-		case *btf.Union:
-			if typedMember.Name == "ip_addr" && typedMember.Size >= 4 {
-				cols.AddColumn(attrs, func(ev *types.Event) string {
-					// TODO: Handle IPv6
-					offset := uintptr(member.Offset.Bytes())
-					ipSlice := unsafe.Slice(&ev.RawData[offset], 4)
-					ipBytes := make(net.IP, 4)
-					copy(ipBytes, ipSlice)
-					return ipBytes.String()
-				})
+		case *btf.Struct:
+			if typedMember.Name == "endpoint" {
+				// add endpoint column
+				index := endpointCounter
+				getEndpoint := func(e *types.Event) eventtypes.L4Endpoint {
+					return *e.Endpoints[index]
+				}
+				eventtypes.MustAddVirtualL4EndpointColumn(
+					cols,
+					attrs,
+					getEndpoint,
+				)
+				endpointCounter++
+
+				addEndpointColumns(cols, member.Name, getEndpoint)
 				continue
 			}
 		}
@@ -299,8 +356,19 @@ func genericConverter(params *params.Params, printer gadgets.Printer, convert fu
 			return
 		}
 
+		// Set endpoint information
+		resultM := result.(map[string]interface{})
+		for i, n := range event.EndpointsNames {
+			resultM[n] = event.Endpoints[i]
+		}
+
 		// TODO: flatten the results?
 		event.Data = result
+
+		// Remove information is not useful for the user
+		event.RawData = nil
+		event.Endpoints = nil
+		event.EndpointsNames = nil
 
 		d, err := convert(event)
 		if err != nil {
