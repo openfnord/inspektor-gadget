@@ -50,25 +50,25 @@ func NewContainerRuntimeClient(runtime *RuntimeConfig) (runtimeclient.ContainerR
 	switch runtime.Name {
 	case runtimeclient.DockerName:
 		socketPath := runtime.SocketPath
-		if envsp := os.Getenv("INSPEKTOR_GADGET_DOCKER_SOCKETPATH"); envsp != "" && socketPath == "" {
+		if envsp := os.Getenv("INSPEKTOR_GADGET_DOCKER_SOCKETPATH"); envsp != "" {
 			socketPath = envsp
 		}
 		return docker.NewDockerClient(socketPath)
 	case runtimeclient.ContainerdName:
 		socketPath := runtime.SocketPath
-		if envsp := os.Getenv("INSPEKTOR_GADGET_CONTAINERD_SOCKETPATH"); envsp != "" && socketPath == "" {
+		if envsp := os.Getenv("INSPEKTOR_GADGET_CONTAINERD_SOCKETPATH"); envsp != "" {
 			socketPath = envsp
 		}
 		return containerd.NewContainerdClient(socketPath)
 	case runtimeclient.CrioName:
 		socketPath := runtime.SocketPath
-		if envsp := os.Getenv("INSPEKTOR_GADGET_CRIO_SOCKETPATH"); envsp != "" && socketPath == "" {
+		if envsp := os.Getenv("INSPEKTOR_GADGET_CRIO_SOCKETPATH"); envsp != "" {
 			socketPath = envsp
 		}
 		return crio.NewCrioClient(socketPath)
 	case runtimeclient.PodmanName:
 		socketPath := runtime.SocketPath
-		if envsp := os.Getenv("INSPEKTOR_GADGET_PODMAN_SOCKETPATH"); envsp != "" && socketPath == "" {
+		if envsp := os.Getenv("INSPEKTOR_GADGET_PODMAN_SOCKETPATH"); envsp != "" {
 			socketPath = envsp
 		}
 		return podman.NewPodmanClient(socketPath), nil
