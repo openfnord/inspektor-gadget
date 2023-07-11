@@ -185,7 +185,7 @@ partsLoop:
 
 		rc = append(rc, &containerutils.RuntimeConfig{
 			Name:       runtimeName,
-			SocketPath: socketPath,
+			SocketPath: &socketPath,
 		})
 	}
 

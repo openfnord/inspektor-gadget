@@ -60,17 +60,30 @@ func AddCommonFlags(command *cobra.Command, commonFlags *CommonFlags) {
 	partsLoop:
 		for _, p := range parts {
 			runtimeName := types.String2RuntimeName(strings.TrimSpace(p))
-			socketPath := ""
+			var socketPath *string
+
+			flagSet := cmd.Flags()
+			if flagSet == nil {
+				return fmt.Errorf("nil flag set")
+			}
 
 			switch runtimeName {
 			case types.RuntimeNameDocker:
-				socketPath = commonFlags.RuntimesSocketPathConfig.Docker
+				if flagSet.Changed(commonutils.DockerSocketPathFlag) {
+					socketPath = &commonFlags.RuntimesSocketPathConfig.Docker
+				}
 			case types.RuntimeNameContainerd:
-				socketPath = commonFlags.RuntimesSocketPathConfig.Containerd
+				if flagSet.Changed(commonutils.ContainerdSocketPathFlag) {
+					socketPath = &commonFlags.RuntimesSocketPathConfig.Containerd
+				}
 			case types.RuntimeNameCrio:
-				socketPath = commonFlags.RuntimesSocketPathConfig.Crio
+				if flagSet.Changed(commonutils.CrioSocketPathFlag) {
+					socketPath = &commonFlags.RuntimesSocketPathConfig.Crio
+				}
 			case types.RuntimeNamePodman:
-				socketPath = commonFlags.RuntimesSocketPathConfig.Podman
+				if flagSet.Changed(commonutils.PodmanSocketPathFlag) {
+					socketPath = &commonFlags.RuntimesSocketPathConfig.Podman
+				}
 			default:
 				return commonutils.WrapInErrInvalidArg("--runtime / -r",
 					fmt.Errorf("runtime %q is not supported", p))

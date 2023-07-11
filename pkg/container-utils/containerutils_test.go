@@ -28,7 +28,7 @@ func TestNewContainerRuntimeClient(t *testing.T) {
 	for _, runtime := range AvailableRuntimes {
 		rc := RuntimeConfig{
 			Name:       types.String2RuntimeName(runtime),
-			SocketPath: nonExistingSocketPath,
+			SocketPath: &nonExistingSocketPath,
 		}
 		c, err := NewContainerRuntimeClient(&rc)
 		require.Nil(t, err)

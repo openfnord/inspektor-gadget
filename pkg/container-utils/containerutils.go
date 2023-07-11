@@ -44,38 +44,61 @@ var AvailableRuntimes = []string{
 
 type RuntimeConfig struct {
 	Name       types.RuntimeName
-	SocketPath string
+	SocketPath *string
 }
 
 func NewContainerRuntimeClient(runtime *RuntimeConfig) (runtimeclient.ContainerRuntimeClient, error) {
 	switch runtime.Name {
 	case types.RuntimeNameDocker:
 		socketPath := runtime.SocketPath
-		if envsp := os.Getenv("INSPEKTOR_GADGET_DOCKER_SOCKETPATH"); envsp != "" && socketPath == "" {
-			socketPath = envsp
+		// If user did not modify the value by using --docker-socketpath, we will
+		// use the env variable if set.
+		// The same applies for other engines.
+		if envsp := os.Getenv("INSPEKTOR_GADGET_DOCKER_SOCKETPATH"); envsp != "" && socketPath == nil {
+			socketPath = &envsp
 		}
-		return docker.NewDockerClient(socketPath)
+
+		if socketPath == nil {
+			return docker.NewDockerClient(runtimeclient.DockerDefaultSocketPath)
+		}
+
+		return docker.NewDockerClient(*socketPath)
 	case types.RuntimeNameContainerd:
 		socketPath := runtime.SocketPath
-		if envsp := os.Getenv("INSPEKTOR_GADGET_CONTAINERD_SOCKETPATH"); envsp != "" && socketPath == "" {
-			socketPath = envsp
+		if envsp := os.Getenv("INSPEKTOR_GADGET_CONTAINERD_SOCKETPATH"); envsp != "" && socketPath == nil {
+			socketPath = &envsp
 		}
-		return containerd.NewContainerdClient(socketPath)
+
+		if socketPath == nil {
+			return containerd.NewContainerdClient(runtimeclient.ContainerdDefaultSocketPath)
+		}
+
+		return containerd.NewContainerdClient(*socketPath)
 	case types.RuntimeNameCrio:
 		socketPath := runtime.SocketPath
-		if envsp := os.Getenv("INSPEKTOR_GADGET_CRIO_SOCKETPATH"); envsp != "" && socketPath == "" {
-			socketPath = envsp
+		if envsp := os.Getenv("INSPEKTOR_GADGET_CRIO_SOCKETPATH"); envsp != "" && socketPath == nil {
+			socketPath = &envsp
 		}
-		return crio.NewCrioClient(socketPath)
+
+		if socketPath == nil {
+			return crio.NewCrioClient(runtimeclient.CrioDefaultSocketPath)
+		}
+
+		return crio.NewCrioClient(*socketPath)
 	case types.RuntimeNamePodman:
 		socketPath := runtime.SocketPath
-		if envsp := os.Getenv("INSPEKTOR_GADGET_PODMAN_SOCKETPATH"); envsp != "" && socketPath == "" {
-			socketPath = envsp
+		if envsp := os.Getenv("INSPEKTOR_GADGET_PODMAN_SOCKETPATH"); envsp != "" && socketPath == nil {
+			socketPath = &envsp
 		}
-		return podman.NewPodmanClient(socketPath), nil
+
+		if socketPath == nil {
+			return podman.NewPodmanClient(runtimeclient.PodmanDefaultSocketPath), nil
+		}
+
+		return podman.NewPodmanClient(*socketPath), nil
 	default:
 		return nil, fmt.Errorf("unknown container runtime: %s (available %s)",
-			runtime, strings.Join(AvailableRuntimes, ", "))
+			runtime.Name, strings.Join(AvailableRuntimes, ", "))
 	}
 }
 
