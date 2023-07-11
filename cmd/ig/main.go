@@ -26,7 +26,6 @@ import (
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/environment"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/runtime/local"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/utils/experimental"
-	"github.com/inspektor-gadget/inspektor-gadget/pkg/utils/host"
 
 	// This is a blank include that actually imports all gadgets
 	// TODO: traceloop is imported separately because it is not in all-gadgets
@@ -48,8 +47,6 @@ func main() {
 		Short: "Collection of gadgets for containers",
 	}
 	common.AddVerboseFlag(rootCmd)
-
-	host.AddAutoSdUnitRestartFlag(rootCmd)
 
 	rootCmd.AddCommand(
 		containers.NewListContainersCmd(),

@@ -24,8 +24,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/spf13/cobra"
 )
 
 var (
@@ -76,20 +74,6 @@ func Init(config Config) error {
 		return nil
 	}
 
-	// Apply workarounds
-	if autoSdUnitRestartFlag {
-		exit, err := autoSdUnitRestart()
-		if exit {
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				os.Exit(1)
-			}
-			os.Exit(0)
-		}
-		if err != nil {
-			return err
-		}
-	}
 	if config.AutoMount {
 		err = autoMount()
 		if err != nil {
@@ -131,21 +115,6 @@ func IsHostNetNs() bool {
 		panic("host.Init() not called")
 	}
 	return isHostNetNs
-}
-
-// AddAutoSdUnitRestartFlag adds a CLI flag to allow re-execute the process
-// in a privileged systemd unit if the current process does not have enough
-// capabilities.
-//
-// This is useful for the "kubectl debug node" command.
-func AddAutoSdUnitRestartFlag(command *cobra.Command) {
-	command.PersistentFlags().BoolVarP(
-		&autoSdUnitRestartFlag,
-		"auto-sd-unit-restart",
-		"",
-		false,
-		"Automatically run in a privileged systemd unit if lacking enough capabilities",
-	)
 }
 
 func GetProcComm(pid int) string {

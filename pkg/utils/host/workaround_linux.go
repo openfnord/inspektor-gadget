@@ -18,23 +18,16 @@
 package host
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
-	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
-	"github.com/godbus/dbus/v5"
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
-	"github.com/syndtr/gocapability/capability"
 	"golang.org/x/sys/unix"
-	"golang.org/x/term"
 )
 
 // isHostNamespace checks if the current process is running in the specified host namespace
@@ -58,147 +51,6 @@ func isHostNamespace(nsKind string) (bool, error) {
 	}
 
 	return selfStat.Ino == systemdStat.Ino, nil
-}
-
-// autoSdUnitRestart will automatically restart the process in a privileged
-// systemd unit if the current process does not have enough capabilities.
-func autoSdUnitRestart() (exit bool, err error) {
-	const IgInSystemdUnitEnv = "IG_IN_SYSTEMD_UNIT"
-
-	// No recursive restarts
-	if os.Getenv(IgInSystemdUnitEnv) == "1" {
-		return false, nil
-	}
-
-	// Only root can talk to the systemd socket
-	if os.Geteuid() != 0 {
-		return false, nil
-	}
-
-	// This workaround is meant for the "kubectl debug node" node. For now,
-	// don't attempt it if we are obviously not running in that context.
-	if HostRoot != "/host" || os.Getenv("KUBERNETES_PORT") == "" {
-		return false, nil
-	}
-
-	// If we already have CAP_SYS_ADMIN, we don't need a workaround
-	c, err := capability.NewPid2(0)
-	if err != nil {
-		return false, err
-	}
-	err = c.Load()
-	if err != nil {
-		return false, err
-	}
-	if c.Get(capability.EFFECTIVE, capability.CAP_SYS_ADMIN) {
-		return false, nil
-	}
-
-	// if the host does not use systemd, we cannot use this workaround
-	_, err = os.Stat("/host/run/systemd/private")
-	if err != nil {
-		return false, nil
-	}
-
-	// From here, we decided to use the workaround. This function will return
-	// exit=true.
-	runID := uuid.New().String()[:8]
-	unitName := fmt.Sprintf("kubectl-debug-ig-%s.service", runID)
-	log.Debugf("Missing capability. Starting systemd unit %q", unitName)
-
-	// systemdDbus.NewSystemdConnectionContext() hard codes the path to the
-	// systemd socket to /run/systemd/private. We need to make sure that this
-	// path exists (if the /run:/run mount was set up correctly). If it doesn't
-	// exist, we create the symlink to /host/run/systemd/private.
-	_, err = os.Stat("/run/systemd/private")
-	if errors.Is(err, os.ErrNotExist) {
-		err := os.MkdirAll("/run/systemd", 0o755)
-		if err != nil {
-			return true, err
-		}
-
-		err = os.Symlink("/host/run/systemd/private", "/run/systemd/private")
-		if err != nil {
-			return true, fmt.Errorf("linking /run/systemd/private: %w", err)
-		}
-	} else if err != nil {
-		return true, fmt.Errorf("statting /run/systemd/private: %w", err)
-	}
-
-	conn, err := systemdDbus.NewSystemdConnectionContext(context.TODO())
-	if err != nil {
-		return true, fmt.Errorf("connecting to systemd: %w", err)
-	}
-	defer conn.Close()
-
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGINT, syscall.SIGTERM)
-
-	statusChan := make(chan string, 1)
-	cmd := []string{
-		fmt.Sprintf("/proc/%d/root/usr/bin/ig", os.Getpid()),
-	}
-	cmd = append(cmd, os.Args[1:]...)
-	envs := []string{IgInSystemdUnitEnv + "=1"}
-	isTerminal := term.IsTerminal(int(os.Stdin.Fd())) || term.IsTerminal(int(os.Stdout.Fd())) || term.IsTerminal(int(os.Stderr.Fd()))
-	if isTerminal && os.Getenv("TERM") != "" {
-		envs = append(envs, "TERM="+os.Getenv("TERM"))
-	}
-
-	properties := []systemdDbus.Property{
-		systemdDbus.PropDescription("Inspektor Gadget via kubectl debug"),
-		// Type=oneshot ensures that StartTransientUnitContext will only return "done" when the job is done
-		systemdDbus.PropType("oneshot"),
-		// Pass stdio to the systemd unit
-		{
-			Name:  "StandardInputFileDescriptor",
-			Value: dbus.MakeVariant(dbus.UnixFD(unix.Stdin)),
-		},
-		{
-			Name:  "StandardOutputFileDescriptor",
-			Value: dbus.MakeVariant(dbus.UnixFD(unix.Stdout)),
-		},
-		{
-			Name:  "StandardErrorFileDescriptor",
-			Value: dbus.MakeVariant(dbus.UnixFD(unix.Stderr)),
-		},
-		{
-			Name:  "Environment",
-			Value: dbus.MakeVariant(envs),
-		},
-		systemdDbus.PropExecStart(cmd, true),
-	}
-
-	_, err = conn.StartTransientUnitContext(context.TODO(),
-		unitName, "fail", properties, statusChan)
-	if err != nil {
-		return true, fmt.Errorf("starting transient unit %q: %w", unitName, err)
-	}
-
-	select {
-	case s := <-statusChan:
-		log.Debugf("systemd unit %q returned %q", unitName, s)
-		// "done" indicates successful execution of a job
-		// See https://pkg.go.dev/github.com/coreos/go-systemd/v22/dbus#Conn.StartUnit
-		if s != "done" {
-			conn.ResetFailedUnitContext(context.TODO(), unitName)
-
-			return true, fmt.Errorf("creating systemd unit `%s`: got `%s`", unitName, s)
-		}
-	case sig := <-signalChan:
-		log.Debugf("%s: interrupt systemd unit %q", sig, unitName)
-		statusStopChan := make(chan string, 1)
-		_, err := conn.StopUnitContext(context.TODO(), unitName, "replace", statusStopChan)
-		if err != nil {
-			return true, fmt.Errorf("stopping transient unit %q: %w", unitName, err)
-		}
-		s := <-statusChan
-		if s != "done" && s != "canceled" {
-			return true, fmt.Errorf("stopping transient unit %q: got `%s`", unitName, s)
-		}
-	}
-
-	return true, nil
 }
 
 // autoMount ensures that filesystems are mounted correctly.
