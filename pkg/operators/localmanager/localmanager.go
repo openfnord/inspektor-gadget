@@ -17,6 +17,7 @@ package localmanager
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/cilium/ebpf"
@@ -163,13 +164,37 @@ partsLoop:
 
 		switch runtimeName {
 		case types.RuntimeNameDocker:
-			socketPath = operatorParams.Get(DockerSocketPath).AsString()
+			param := operatorParams.Get(DockerSocketPath)
+
+			if envsp := os.Getenv("INSPEKTOR_GADGET_DOCKER_SOCKETPATH"); envsp != "" && !param.Changed() {
+				socketPath = envsp
+			} else {
+				socketPath = param.AsString()
+			}
 		case types.RuntimeNameContainerd:
-			socketPath = operatorParams.Get(ContainerdSocketPath).AsString()
+			param := operatorParams.Get(ContainerdSocketPath)
+
+			if envsp := os.Getenv("INSPEKTOR_GADGET_CONTAINERD_SOCKETPATH"); envsp != "" && !param.Changed() {
+				socketPath = envsp
+			} else {
+				socketPath = param.AsString()
+			}
 		case types.RuntimeNameCrio:
-			socketPath = operatorParams.Get(CrioSocketPath).AsString()
+			param := operatorParams.Get(CrioSocketPath)
+
+			if envsp := os.Getenv("INSPEKTOR_GADGET_CRIO_SOCKETPATH"); envsp != "" && !param.Changed() {
+				socketPath = envsp
+			} else {
+				socketPath = param.AsString()
+			}
 		case types.RuntimeNamePodman:
-			socketPath = operatorParams.Get(PodmanSocketPath).AsString()
+			param := operatorParams.Get(PodmanSocketPath)
+
+			if envsp := os.Getenv("INSPEKTOR_GADGET_PODMAN_SOCKETPATH"); envsp != "" && !param.Changed() {
+				socketPath = envsp
+			} else {
+				socketPath = param.AsString()
+			}
 		default:
 			return commonutils.WrapInErrInvalidArg("--runtime / -r",
 				fmt.Errorf("runtime %q is not supported", p))
