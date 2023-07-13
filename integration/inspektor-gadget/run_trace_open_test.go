@@ -19,7 +19,6 @@ import (
 	"testing"
 
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/gadgets/run/types"
-	eventtypes "github.com/inspektor-gadget/inspektor-gadget/pkg/types"
 
 	. "github.com/inspektor-gadget/inspektor-gadget/integration"
 )
@@ -43,48 +42,39 @@ func TestRunTraceOpen(t *testing.T) {
 		Cmd:          fmt.Sprintf("$KUBECTL_GADGET run --prog @%s --definition @%s -n %s -o json", prog, def, ns),
 		StartAndStop: true,
 		ExpectedOutputFn: func(output string) error {
-			expectedEntry := &types.Event{
+			expectedBaseJsonObj := RunEventToJsonObj(t, &types.Event{
 				Event: BuildBaseEvent(ns),
-				Data: map[string]interface{}{
-					"comm":      "cat",
-					"fname":     "/dev/null",
-					"uid":       uint32(1000),
-					"gid":       uint32(1111),
-					"ret":       3,
-					"flags":     0,
-					"mode":      uint16(0),
-					"mntns_id":  uint64(0),
-					"pid":       uint32(0),
-					"timestamp": uint64(0),
-				},
+			})
+
+			expectedTraceOpenJsonObj := map[string]interface{}{
+				"comm":     "cat",
+				"fname":    "/dev/null",
+				"uid":      1000,
+				"gid":      1111,
+				"ret":      3,
+				"flags":    0,
+				"mntns_id": 0,
+				"pid":      0,
 			}
 
-			normalize := func(e *types.Event) {
-				e.Timestamp = 0
-				e.MountNsID = 0
-				e.RawData = nil
-				data := e.Data.(map[string]interface{})
-				if data == nil {
-					return
-				}
-				data["pid"] = uint32(0)
-				data["mntns_id"] = uint64(0)
-				data["timestamp"] = uint64(0)
+			expectedJsonObj := MergeJsonObjs(t, expectedBaseJsonObj, expectedTraceOpenJsonObj)
 
-				// TODO: find better way
-				// json unmarshalling always uses float64 for numbers
-				data["ret"] = int(data["ret"].(float64))
-				data["flags"] = int(data["flags"].(float64))
-				data["mode"] = uint16(data["mode"].(float64))
-				data["uid"] = uint32(data["uid"].(float64))
-				data["gid"] = uint32(data["gid"].(float64))
+			normalize := func(m map[string]interface{}) {
+				SetEventTimestamp(m, 0)
+				SetEventMountNsID(m, 0)
 
-				e.K8s.Node = ""
+				SetEventK8sNode(m, "")
+
 				// TODO: Verify container runtime and container name
-				e.Runtime = eventtypes.BasicRuntimeMetadata{}
+				SetEventRuntimeName(m, "")
+				SetEventRuntimeContainerID(m, "")
+				SetEventRuntimeContainerName(m, "")
+
+				m["pid"] = uint32(0)
+				m["mntns_id"] = uint64(0)
 			}
 
-			return ExpectEntriesToMatch(output, normalize, expectedEntry)
+			return ExpectEntriesToMatchJson(t, output, normalize, expectedJsonObj)
 		},
 	}
 
