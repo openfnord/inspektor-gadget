@@ -94,7 +94,9 @@ type ParamDesc struct {
 // Param holds a ParamDesc but can additionally store a value
 type Param struct {
 	*ParamDesc
-	value string
+
+	value   string
+	changed bool
 }
 
 // GetTitle returns a human friendly title of the field; is no Title has been specified,
@@ -349,7 +351,14 @@ func (p *Param) Set(val string) error {
 		return err
 	}
 	p.value = val
+	p.changed = true
 	return nil
+}
+
+// Changed indicates whether the flag was set to a value different than default
+// one.
+func (p *Param) Changed() bool {
+	return p.changed
 }
 
 func (p *Param) AsFloat32() float32 {
