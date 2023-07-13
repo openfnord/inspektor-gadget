@@ -113,6 +113,9 @@ type BasicRuntimeMetadata struct {
 	// instance, without the "cri-o://" for CRI-O.
 	ContainerID string `json:"containerId,omitempty" column:"containerId,width:13,maxWidth:64,hide"`
 
+	// ContainerImage is the container image name
+	ContainerImage string `json:"containerImage,omitempty" column:"containerImage,hide"`
+
 	// ContainerName is the container name. In the case the container runtime
 	// response with multiple containers, ContainerName contains only the first element.
 	ContainerName string `json:"containerName,omitempty" column:"containerName,template:container"`

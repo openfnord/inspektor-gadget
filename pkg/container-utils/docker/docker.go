@@ -109,7 +109,13 @@ func (c *DockerClient) GetContainers() ([]*runtimeclient.ContainerData, error) {
 	ret := make([]*runtimeclient.ContainerData, len(containers))
 
 	for i, container := range containers {
-		ret[i] = DockerContainerToContainerData(&container)
+		ret[i] = buildContainerData(
+			container.ID,
+			container.Names[0],
+			container.Image,
+			container.State,
+			container.Labels,
+		)
 	}
 
 	return ret, nil
@@ -132,7 +138,13 @@ func (c *DockerClient) GetContainer(containerID string) (*runtimeclient.Containe
 			len(containers), containerID, containers)
 	}
 
-	return DockerContainerToContainerData(&containers[0]), nil
+	return buildContainerData(
+		containers[0].ID,
+		containers[0].Names[0],
+		containers[0].Image,
+		containers[0].State,
+		containers[0].Labels,
+	), nil
 }
 
 func (c *DockerClient) GetContainerDetails(containerID string) (*runtimeclient.ContainerDetailsData, error) {
@@ -159,19 +171,17 @@ func (c *DockerClient) GetContainerDetails(containerID string) (*runtimeclient.C
 		return nil, errors.New("container host config is nil")
 	}
 
+	containerData := buildContainerData(
+		containerJSON.ID,
+		containerJSON.Name,
+		containerJSON.Config.Image,
+		containerJSON.State.Status,
+		containerJSON.Config.Labels,
+	)
 	containerDetailsData := runtimeclient.ContainerDetailsData{
-		ContainerData: runtimeclient.ContainerData{
-			Runtime: runtimeclient.RuntimeContainerData{
-				BasicRuntimeMetadata: types.BasicRuntimeMetadata{
-					ContainerID:   containerJSON.ID,
-					ContainerName: strings.TrimPrefix(containerJSON.Name, "/"),
-					RuntimeName:   types.RuntimeNameDocker,
-				},
-				State: containerStatusStateToRuntimeClientState(containerJSON.State.Status),
-			},
-		},
-		Pid:         containerJSON.State.Pid,
-		CgroupsPath: string(containerJSON.HostConfig.Cgroup),
+		ContainerData: *containerData,
+		Pid:           containerJSON.State.Pid,
+		CgroupsPath:   string(containerJSON.HostConfig.Cgroup),
 	}
 	if len(containerJSON.Mounts) > 0 {
 		containerDetailsData.Mounts = make([]runtimeclient.ContainerMountData, len(containerJSON.Mounts))
@@ -182,9 +192,6 @@ func (c *DockerClient) GetContainerDetails(containerID string) (*runtimeclient.C
 			}
 		}
 	}
-
-	// Fill K8S information.
-	runtimeclient.EnrichWithK8sMetadata(&containerDetailsData.ContainerData, containerJSON.Config.Labels)
 
 	// Try to get cgroups information from /proc/<pid>/cgroup as a fallback.
 	// However, don't fail if such a file is not available, as it would prevent the
@@ -235,20 +242,22 @@ func containerStatusStateToRuntimeClientState(containerState string) (runtimeCli
 	return
 }
 
-func DockerContainerToContainerData(container *dockertypes.Container) *runtimeclient.ContainerData {
+func buildContainerData(id, name, image, status string, labels map[string]string) *runtimeclient.ContainerData {
 	containerData := &runtimeclient.ContainerData{
 		Runtime: runtimeclient.RuntimeContainerData{
 			BasicRuntimeMetadata: types.BasicRuntimeMetadata{
-				ContainerID:   container.ID,
-				ContainerName: strings.TrimPrefix(container.Names[0], "/"),
+				ContainerID:   id,
+				ContainerName: strings.TrimPrefix(name, "/"),
 				RuntimeName:   types.RuntimeNameDocker,
+				// TODO: Should we keep the full image name?
+				ContainerImage: strings.Split(image, ":")[0],
 			},
-			State: containerStatusStateToRuntimeClientState(container.State),
+			State: containerStatusStateToRuntimeClientState(status),
 		},
 	}
 
 	// Fill K8S information.
-	runtimeclient.EnrichWithK8sMetadata(containerData, container.Labels)
+	runtimeclient.EnrichWithK8sMetadata(containerData, labels)
 
 	return containerData
 }

@@ -32,6 +32,7 @@ import (
 const (
 	containerNamePrefix = "test-container"
 	numContainers       = 2
+	imageName           = "docker.io/library/nginx"
 )
 
 func TestRuntimeClientInterface(t *testing.T) {
@@ -47,7 +48,7 @@ func TestRuntimeClientInterface(t *testing.T) {
 			var expectedData []*runtimeclient.ContainerDetailsData
 			for i := 0; i < numContainers; i++ {
 				cn := fmt.Sprintf("%s-%s-%d", containerNamePrefix, runtime, i)
-				c, err := testutils.NewContainer(runtime, cn, "sleep inf")
+				c, err := testutils.NewContainer(runtime, cn, "sleep inf", testutils.WithImage(imageName))
 				require.Nil(t, err)
 				require.NotNil(t, c)
 				c.Start(t)
@@ -60,9 +61,10 @@ func TestRuntimeClientInterface(t *testing.T) {
 						ContainerData: runtimeclient.ContainerData{
 							Runtime: runtimeclient.RuntimeContainerData{
 								BasicRuntimeMetadata: types.BasicRuntimeMetadata{
-									RuntimeName:   runtime,
-									ContainerName: cn,
-									ContainerID:   c.ID(),
+									RuntimeName:    runtime,
+									ContainerName:  cn,
+									ContainerID:    c.ID(),
+									ContainerImage: imageName,
 								},
 								State: runtimeclient.StateRunning,
 							},

@@ -17,6 +17,7 @@ package containerd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/containerd/containerd"
@@ -121,26 +122,17 @@ func (c *ContainerdClient) GetContainer(containerID string) (*runtimeclient.Cont
 		return nil, err
 	}
 
-	labels, err := container.Labels(c.ctx)
+	// Don't pass a task and let taskAndContainerToContainerData set the State
+	// to its default for the following reasons:
+	// 1. GetContainer is only getting called on new created containers
+	// 2. We would need to get the Task for the Container. containerd needs to
+	// acquire a mutex that is currently hold by the creating process, which we
+	// interrupted -> deadlock
+	containerData, err := c.taskAndContainerToContainerData(nil, container)
 	if err != nil {
-		return nil, fmt.Errorf("listing labels of container %q: %w", container.ID(), err)
+		return nil, fmt.Errorf("creating containerData for container %q: %w", container.ID(), err)
 	}
 
-	// State is getting set to `Running` here for the following reasons:
-	// 1. GetContainer is only getting called on new created containers
-	// 2. We would need to get the Task for the Container. containerd needs to aquire a mutex
-	//    that is currently hold by the creating process, which we interrupted -> deadlock
-	containerData := &runtimeclient.ContainerData{
-		Runtime: runtimeclient.RuntimeContainerData{
-			BasicRuntimeMetadata: types.BasicRuntimeMetadata{
-				ContainerID:   container.ID(),
-				ContainerName: getContainerName(container, labels),
-				RuntimeName:   types.RuntimeNameContainerd,
-			},
-			State: runtimeclient.StateRunning,
-		},
-	}
-	runtimeclient.EnrichWithK8sMetadata(containerData, labels)
 	return containerData, nil
 }
 
@@ -257,18 +249,32 @@ func (c *ContainerdClient) getContainerTask(container containerd.Container) (*co
 // Constructs a ContainerData from a containerTask and containerd.Container
 // The extra containerd.Container parameter saves an additional call to the API
 func (c *ContainerdClient) taskAndContainerToContainerData(task *containerTask, container containerd.Container) (*runtimeclient.ContainerData, error) {
+	// If we don't have access to the task, set the state to running by default
+	state := runtimeclient.StateRunning
+	if task != nil {
+		state = task.status
+	}
+
 	labels, err := container.Labels(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing labels of container %q: %w", container.ID(), err)
 	}
+
+	image, err := container.Image(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting image of container %q: %w", container.ID(), err)
+	}
+
 	containerData := &runtimeclient.ContainerData{
 		Runtime: runtimeclient.RuntimeContainerData{
 			BasicRuntimeMetadata: types.BasicRuntimeMetadata{
 				ContainerID:   container.ID(),
 				ContainerName: getContainerName(container, labels),
 				RuntimeName:   types.RuntimeNameContainerd,
+				// TODO: Should we keep the full image name?
+				ContainerImage: strings.Split(image.Name(), ":")[0],
 			},
-			State: task.status,
+			State: state,
 		},
 	}
 	runtimeclient.EnrichWithK8sMetadata(containerData, labels)
