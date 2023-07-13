@@ -69,19 +69,26 @@ func (c *ContainerdContainer) Pid() int {
 	return c.pid
 }
 
-func (c *ContainerdContainer) Run(t *testing.T) {
+func (c *ContainerdContainer) initClientAndCtx() error {
 	var err error
 	c.client, err = containerd.New("/run/containerd/containerd.sock",
 		containerd.WithTimeout(3*time.Second),
 	)
 	if err != nil {
-		t.Fatalf("Failed to connect to containerd: %s", err)
+		return fmt.Errorf("creating a client: %w", err)
 	}
 
 	c.nsCtx = namespaces.WithNamespace(c.options.ctx, defaultNamespace)
-	fullImage := getFullImage(c.options)
+	return nil
+}
+
+func (c *ContainerdContainer) Run(t *testing.T) {
+	if err := c.initClientAndCtx(); err != nil {
+		t.Fatalf("Failed to initialize client: %s", err)
+	}
 
 	// Download and unpack the image
+	fullImage := getFullImage(c.options)
 	image, err := c.client.Pull(c.nsCtx, fullImage)
 	if err != nil {
 		t.Fatalf("Failed to pull the image %q: %s", fullImage, err)
@@ -184,6 +191,21 @@ func (c *ContainerdContainer) start(t *testing.T) {
 }
 
 func (c *ContainerdContainer) Stop(t *testing.T) {
+	if !c.started && !c.options.forceDelete {
+		t.Logf("Warn(%s): trying to stop already stopped container\n", c.name)
+		return
+	}
+	if c.client == nil {
+		if c.options.forceDelete {
+			t.Logf("Warn(%s): trying to stop container with nil client. Forcing deletion\n", c.name)
+			if err := c.initClientAndCtx(); err != nil {
+				t.Fatalf("Failed to initialize client: %s", err)
+			}
+		} else {
+			t.Fatalf("Client is not initialized")
+		}
+	}
+
 	c.stop(t)
 	c.started = false
 }
@@ -194,8 +216,19 @@ func (c *ContainerdContainer) deleteAndClose(task containerd.Task, container con
 
 	// Kill the task
 	task.Kill(c.nsCtx, syscall.SIGKILL)
+
 	// We need to wait until the task is killed before trying to delete it
-	<-c.exitStatus
+	if c.options.forceDelete {
+		// If we are forcing the deletion, we don't want to wait forever as the
+		// task might be already stopped
+		select {
+		case <-c.exitStatus:
+		case <-time.After(1 * time.Second):
+		}
+	} else {
+		<-c.exitStatus
+	}
+
 	_, err = task.Delete(c.nsCtx)
 	if err != nil {
 		return fmt.Errorf("deleting task %q: %w", c.name, err)
