@@ -145,10 +145,11 @@ func parseMultiJSONOutputToObj(output string, normalize func(map[string]interfac
 // matched by at least one entry in the output
 func expectEntriesToMatchObj(t *testing.T, entries []map[string]interface{}, expectedEntries ...map[string]interface{}) error {
 out:
-	for _, expectedEntry := range expectedEntries { // Marshal & Unmarshal to have the right types in the map
-		bytes, err := json.Marshal(expectedEntry)
+	for _, expectedEntry := range expectedEntries {
+		// Marshal & Unmarshal to have the right types in the map
+		expectedEntryJson, err := json.Marshal(expectedEntry)
 		require.NoError(t, err, "marshalling expectedEntry")
-		err = json.Unmarshal(bytes, &expectedEntry)
+		err = json.Unmarshal(expectedEntryJson, &expectedEntry)
 		require.NoError(t, err, "unmarshalling expectedEntry")
 
 		for _, entry := range entries {
@@ -166,6 +167,38 @@ out:
 // matched by at least one entry in the output (Lines of independent JSON objects).
 func ExpectEntriesToMatchObj(t *testing.T, output string, normalize func(map[string]interface{}), expectedEntries ...map[string]interface{}) error {
 	entries, err := parseMultiJSONOutputToObj(output, normalize)
+	if err != nil {
+		return err
+	}
+	return expectEntriesToMatchObj(t, entries, expectedEntries...)
+}
+
+// parseJSONArrayOutputToObj parses a string containing a JSON array into a slice of maps.
+func parseJSONArrayOutputToObj(t *testing.T, output string, normalize func(map[string]interface{})) ([]map[string]interface{}, error) {
+	ret := []map[string]interface{}{}
+
+	if err := json.Unmarshal([]byte(output), &ret); err != nil {
+		return nil, err
+	}
+
+	for i := range ret {
+		if normalize != nil {
+			normalize(ret[i])
+		}
+
+		// Marshal & Unmarshal to have the right types in the map
+		entryJson, err := json.Marshal(ret[i])
+		require.NoError(t, err, "marshalling expectedEntry")
+		err = json.Unmarshal(entryJson, &ret[i])
+		require.NoError(t, err, "unmarshalling expectedEntry")
+	}
+	return ret, nil
+}
+
+// ExpectEntriesInArrayToMatchObj verifies that all the entries in expectedEntries are
+// matched by at least one entry in the output (JSON array of JSON objects).
+func ExpectEntriesInArrayToMatchObj(t *testing.T, output string, normalize func(map[string]interface{}), expectedEntries ...map[string]interface{}) error {
+	entries, err := parseJSONArrayOutputToObj(t, output, normalize)
 	if err != nil {
 		return err
 	}

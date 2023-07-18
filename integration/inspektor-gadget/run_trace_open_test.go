@@ -28,16 +28,20 @@ func TestRunTraceOpen(t *testing.T) {
 
 	t.Parallel()
 
-	prog := "../../gadgets/trace_open_x86.bpf.o"
-
 	// TODO: Handle it once we support getting container image name from docker
 	errIsDocker, isDockerRuntime := IsDockerRuntime()
 	if errIsDocker != nil {
 		t.Fatalf("checking if docker is current runtime: %v", errIsDocker)
 	}
 
-	if *k8sArch == "arm64" {
+	var prog string
+	switch *k8sArch {
+	case "amd64":
+		prog = "../../gadgets/trace_open_x86.bpf.o"
+	case "arm64":
 		prog = "../../gadgets/trace_open_arm64.bpf.o"
+	default:
+		t.Fatalf("Unsupported architecture: %s", *k8sArch)
 	}
 
 	const (
