@@ -28,11 +28,12 @@ const (
 	TypeTraceIntervals GadgetType = "traceIntervals" // top gadgets expecting arrays of events
 	TypeOneShot        GadgetType = "oneShot"        // Gadgets that only fetch results
 	TypeProfile        GadgetType = "profile"        // Gadgets that run until the user stops, or it times out and then shows results
+	TypeRun            GadgetType = "run"            // This is a special type only used by the run command
 	TypeOther          GadgetType = "other"
 )
 
 func (t GadgetType) CanSort() bool {
-	return t == TypeOneShot || t == TypeTraceIntervals
+	return t == TypeOneShot || t == TypeTraceIntervals || t == TypeRun
 }
 
 func (t GadgetType) IsPeriodic() bool {
