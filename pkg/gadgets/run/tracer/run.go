@@ -118,25 +118,26 @@ func getPrintMap(spec *ebpf.CollectionSpec) (*ebpf.MapSpec, error) {
 	return nil, fmt.Errorf("no BPF map with %q prefix found", printMapPrefix)
 }
 
-func getValueStructBTF(progContent []byte) (*btf.Struct, error) {
+func getEventTypeBTF(progContent []byte) (*btf.Struct, error) {
 	spec, err := loadSpec(progContent)
 	if err != nil {
 		return nil, err
 	}
 
+	// Look for gadgets with a "print_" map
 	m, err := getPrintMap(spec)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		var valueStruct *btf.Struct
+		var ok bool
+		valueStruct, ok = m.Value.(*btf.Struct)
+		if !ok {
+			return nil, fmt.Errorf("BPF map %q does not have BTF info for values", m.Name)
+		}
+
+		return valueStruct, nil
 	}
 
-	var valueStruct *btf.Struct
-	var ok bool
-	valueStruct, ok = m.Value.(*btf.Struct)
-	if !ok {
-		return nil, fmt.Errorf("BPF map %q does not have BTF info for values", m.Name)
-	}
-
-	return valueStruct, nil
+	return nil, fmt.Errorf("the gadget doesn't provide any compatible way to show information")
 }
 
 func getType(typ btf.Type) reflect.Type {
@@ -268,7 +269,7 @@ func (g *GadgetDesc) getColumns(params *params.Params, args []string) (*columns.
 		return nil, fmt.Errorf("no definition provided")
 	}
 
-	valueStruct, err := getValueStructBTF(progContent)
+	valueStruct, err := getEventTypeBTF(progContent)
 	if err != nil {
 		return nil, fmt.Errorf("getting value struct: %w", err)
 	}
