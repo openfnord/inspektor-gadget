@@ -22,12 +22,23 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/docker/cli/cli/config"
+	"github.com/docker/cli/cli/config/configfile"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"oras.land/oras-go/v2/content/oci"
+	oras_auth "oras.land/oras-go/v2/registry/remote/auth"
 )
+
+type AuthOptions struct {
+	AuthFile string
+}
 
 var (
 	validTagRegex   = regexp.MustCompile("^[a-zA-Z0-9][a-zA-Z0-9_.-]*[a-zA-Z0-9]$")
 	defaultOciStore = "/var/lib/ig/oci-store"
+	DefaultAuthFile = "/var/lib/ig/config.json"
 )
 
 func GetLocalOciStore() (*oci.Store, error) {
@@ -110,4 +121,87 @@ func NormalizeImage(image string) (string, error) {
 		return "", fmt.Errorf("get repository from image %q: %w", image, err)
 	}
 	return fmt.Sprintf("%s:%s", repository, tag), nil
+}
+
+func GetHostString(repository string) (string, error) {
+	// We need everything before the first slash, which includes also the port, but remove the scheme
+	url, err := url.Parse(repository)
+	if err != nil {
+		return "", fmt.Errorf("parse url %q: %w", repository, err)
+	}
+	if url.Host != "" && url.Scheme != "" {
+		return "", fmt.Errorf("no scheme allowed")
+	}
+
+	if len(repository) == 0 {
+		return "", fmt.Errorf("empty repo url")
+	}
+	// mydomain.io could be a repository. So tolerate a string without "/"
+	return strings.Split(repository, "/")[0], nil
+}
+
+func SetupAuthVariablesAndFlags(cmd *cobra.Command, authOptions *AuthOptions) {
+	// Flag inspired by https://github.com/containers/common/blob/cac40138f7e3c2b29ca32e64348535516bf6aa51/pkg/auth/cli.go#L48
+	cmd.Flags().StringVar(&authOptions.AuthFile, "authfile", DefaultAuthFile,
+		"path of the authentication file. This overrides the REGISTRY_AUTH_FILE environment variable")
+	viper.BindPFlag("registry.auth_file", cmd.Flags().Lookup("authfile"))
+	viper.BindEnv("registry.auth_file", "REGISTRY_AUTH_FILE")
+}
+
+func CreateAuthClient(repository string, authOptions *AuthOptions) (*oras_auth.Client, error) {
+	logrus.Debugf("Using auth file %q", authOptions.AuthFile)
+
+	var cfg *configfile.ConfigFile
+	var err error
+
+	// 1. Explicitly setting the auth file
+	// 2. Using the default auth file
+	// 3. Using the default docker auth file if 2. doesn't exist
+	if authOptions.AuthFile != DefaultAuthFile {
+		authFileReader, err := os.Open(authOptions.AuthFile)
+		if err != nil {
+			return nil, fmt.Errorf("open auth file %q: %w", authOptions.AuthFile, err)
+		}
+		defer authFileReader.Close()
+		cfg, err = config.LoadFromReader(authFileReader)
+		if err != nil {
+			return nil, fmt.Errorf("load auth config: %w", err)
+		}
+	} else if _, err := os.Stat(authOptions.AuthFile); err == nil {
+		authFileReader, err := os.Open(authOptions.AuthFile)
+		if err != nil {
+			return nil, fmt.Errorf("open auth file %q: %w", authOptions.AuthFile, err)
+		}
+		defer authFileReader.Close()
+		cfg, err = config.LoadFromReader(authFileReader)
+		if err != nil {
+			return nil, fmt.Errorf("load auth config: %w", err)
+		}
+	} else {
+		logrus.Debugf("Couldn't find default auth file %q...", authOptions.AuthFile)
+		logrus.Debugf("Using default docker auth file instead")
+		logrus.Debugf("$HOME: %q", os.Getenv("HOME"))
+
+		cfg, err = config.Load("")
+		if err != nil {
+			return nil, fmt.Errorf("load auth config: %w", err)
+		}
+	}
+
+	hostString, err := GetHostString(repository)
+	if err != nil {
+		return nil, fmt.Errorf("get host string: %w", err)
+	}
+	authConfig, err := cfg.GetAuthConfig(hostString)
+	if err != nil {
+		return nil, fmt.Errorf("get auth config: %w", err)
+	}
+
+	return &oras_auth.Client{
+		Credential: oras_auth.StaticCredential(hostString, oras_auth.Credential{
+			Username:    authConfig.Username,
+			Password:    authConfig.Password,
+			AccessToken: authConfig.Auth,
+		}),
+	}, nil
 }
