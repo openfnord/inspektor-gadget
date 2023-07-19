@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/common"
+	"github.com/inspektor-gadget/inspektor-gadget/cmd/common/image"
 	"github.com/inspektor-gadget/inspektor-gadget/cmd/ig/containers"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/columns"
 	"github.com/inspektor-gadget/inspektor-gadget/pkg/environment"
@@ -60,6 +61,10 @@ func main() {
 	// columnFilters for ig
 	columnFilters := []columns.ColumnFilter{columns.WithoutExceptTag("kubernetes", "runtime")}
 	common.AddCommandsFromRegistry(rootCmd, runtime, columnFilters)
+
+	if experimental.Enabled() {
+		rootCmd.AddCommand(image.NewImageCmd())
+	}
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

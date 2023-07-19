@@ -44,6 +44,7 @@ require (
 	github.com/google/go-cmp v0.5.9
 	github.com/kr/pretty v0.3.1
 	github.com/moby/moby v24.0.5+incompatible
+	github.com/opencontainers/image-spec v1.1.0-rc4
 	github.com/prometheus/client_golang v1.16.0
 	github.com/shopspring/decimal v1.3.1
 	github.com/solo-io/bumblebee v0.0.14
@@ -59,6 +60,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/cri-api v0.27.4
 	oras.land/oras-go v1.2.3
+	oras.land/oras-go/v2 v2.2.1
 )
 
 require (
@@ -131,7 +133,6 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.0-rc3 // indirect
 	github.com/opencontainers/runc v1.1.7 // indirect
 	github.com/opencontainers/selinux v1.11.0 // indirect
 	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
