@@ -240,7 +240,7 @@ func MustAddVirtualL4EndpointColumn[Event any](
 ) {
 	cols.MustAddColumn(
 		attr,
-		func(e *Event) string {
+		func(e *Event) any {
 			endpoint := getEndpoint(e)
 			return endpoint.String()
 		},
@@ -254,7 +254,7 @@ func MustAddVirtualL3EndpointColumn[Event any](
 ) {
 	cols.MustAddColumn(
 		attr,
-		func(e *Event) string {
+		func(e *Event) any {
 			endpoint := getEndpoint(e)
 			return endpoint.String()
 		},

@@ -74,7 +74,7 @@ func NewListContainersCmd() *cobra.Command {
 			}
 
 			cols := columns.MustCreateColumns[containercollection.PubSubEvent]()
-			cols.SetExtractor("event", func(event *containercollection.PubSubEvent) string {
+			cols.SetExtractor("event", func(event *containercollection.PubSubEvent) any {
 				return event.Type.String()
 			})
 			// Display the runtime name and container ID when watching containers
