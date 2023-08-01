@@ -36,10 +36,31 @@
 #define tw_rcv_saddr    __tw_common.skc_rcv_saddr
 #define tw_dport        __tw_common.skc_dport
 
+// Add a _ prefix to avoid colliding with the kernel definition. This is removed when converting to
+// string.
+enum socket_state {
+	_ESTABLISHED = 1,
+	_SYN_SENT = 2,
+	_SYN_RECV = 3,
+	_FIN_WAIT1 = 4,
+	_FIN_WAIT2 = 5,
+	_TIME_WAIT = 6,
+	_CLOSE = 7,
+	_CLOSE_WAIT = 8,
+	_LAST_ACK = 9,
+	_LISTEN = 10,
+	_CLOSING = 11,
+	_NEW_SYN_RECV = 12,
+	_MAX_STATES = 13,
+	// custom states for UDP
+	_ACTIVE = 14,
+	_INACTIVE = 15,
+};
+
 struct socket_entry {
 	struct gadget_l4endpoint_t src;
 	struct gadget_l4endpoint_t dst;
-	__u32 state;
+	enum socket_state state;
 	__u32 ino;
 };
 
@@ -190,6 +211,15 @@ int ig_snap_udp4(struct bpf_iter__udp *ctx)
 	/* Filter out IPv6 for now */
 	if (inet->sk.sk_family != AF_INET)
 		return 0;
+
+	// Transform TCP status into something more suitable for UDP
+	__u32 state = inet->sk.sk_state;
+	switch(state) {
+	case _ESTABLISHED:
+		state = _ACTIVE;
+	case _CLOSE:
+		state = _INACTIVE;
+	}
 
 	socket_bpf_seq_write(seq, IPPROTO_UDP, inet->inet_rcv_saddr,
 		inet->inet_sport, inet->inet_daddr,
