@@ -65,6 +65,7 @@ func main() {
 	if experimental.Enabled() {
 		rootCmd.AddCommand(image.NewImageCmd())
 		rootCmd.AddCommand(common.NewLoginCmd())
+		rootCmd.AddCommand(common.NewLogoutCmd())
 	}
 
 	if err := rootCmd.Execute(); err != nil {
