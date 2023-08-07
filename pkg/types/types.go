@@ -34,6 +34,7 @@ func init() {
 	columns.MustRegisterTemplate("pod", "width:30,ellipsis:middle")
 	columns.MustRegisterTemplate("container", "width:30")
 	columns.MustRegisterTemplate("containerImageName", "width:30")
+	columns.MustRegisterTemplate("containerImageDigest", "width:30")
 	columns.MustRegisterTemplate("comm", "maxWidth:16")
 	columns.MustRegisterTemplate("pid", "minWidth:7")
 	columns.MustRegisterTemplate("uid", "minWidth:8")
@@ -121,10 +122,13 @@ type BasicRuntimeMetadata struct {
 	// ContainerImageName is the name of the container image where the event comes from
 	// i.e. docker.io/library/busybox:latest
 	ContainerImageName string `json:"containerImageName,omitempty" column:"containerImageName,hide"`
+
+	// ContainerImageDigest is the (repo) digest on the container image where the event comes from
+	ContainerImageDigest string `json:"containerImageDigest,omitempty" column:"containerImageDigest,hide"`
 }
 
 func (b *BasicRuntimeMetadata) IsEnriched() bool {
-	return b.RuntimeName != RuntimeNameUnknown && b.RuntimeName != "" && b.ContainerID != "" && b.ContainerName != "" && b.ContainerImageName != ""
+	return b.RuntimeName != RuntimeNameUnknown && b.RuntimeName != "" && b.ContainerID != "" && b.ContainerName != "" && b.ContainerImageName != "" && b.ContainerImageDigest != ""
 }
 
 type BasicK8sMetadata struct {
@@ -177,6 +181,7 @@ func (c *CommonData) SetContainerMetadata(k8s *BasicK8sMetadata, runtime *BasicR
 	c.Runtime.ContainerName = runtime.ContainerName
 	c.Runtime.ContainerID = runtime.ContainerID
 	c.Runtime.ContainerImageName = runtime.ContainerImageName
+	c.Runtime.ContainerImageDigest = runtime.ContainerImageDigest
 }
 
 func (c *CommonData) GetNode() string {
