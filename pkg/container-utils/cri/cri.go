@@ -45,6 +45,7 @@ type CRIClient struct {
 	conn           *grpc.ClientConn
 	client         runtime.RuntimeServiceClient
 	clientV1alpha2 runtimeV1alpha2.RuntimeServiceClient
+	imageClient    runtime.ImageServiceClient
 }
 
 func NewCRIClient(name types.RuntimeName, socketPath string, timeout time.Duration) (CRIClient, error) {
@@ -66,6 +67,7 @@ func NewCRIClient(name types.RuntimeName, socketPath string, timeout time.Durati
 		ConnTimeout: timeout,
 		conn:        conn,
 		client:      runtime.NewRuntimeServiceClient(conn),
+		imageClient: runtime.NewImageServiceClient(conn),
 	}
 
 	// determine CRI API version to use
@@ -111,6 +113,21 @@ func listContainers(c *CRIClient, filter *runtime.ContainerFilter) ([]*runtime.C
 	return res.GetContainers(), nil
 }
 
+func listImages(c *CRIClient, filter *runtime.ImageFilter) ([]*runtime.Image, error) {
+	request := &runtime.ListImagesRequest{}
+	if filter != nil {
+		request.Filter = filter
+	}
+
+	res, err := c.imageClient.ListImages(context.Background(), request)
+	if err != nil {
+		return nil, fmt.Errorf("listing images with request %+v: %w",
+			request, err)
+	}
+
+	return res.GetImages(), nil
+}
+
 func (c *CRIClient) GetContainers() ([]*runtimeclient.ContainerData, error) {
 	containers, err := listContainers(c, nil)
 	if err != nil {
@@ -142,7 +159,33 @@ func (c *CRIClient) GetContainer(containerID string) (*runtimeclient.ContainerDa
 			len(containers), containerID, containers)
 	}
 
-	return CRIContainerToContainerData(c.Name, containers[0]), nil
+	notFullyEnriched := CRIContainerToContainerData(c.Name, containers[0])
+
+	image, err := c.getImage(containers[0].Image)
+
+	// notFullyEnriched.Runtime.BasicRuntimeMetadata.ContainerImageDigest
+	fmt.Printf("Claudia: image.RepoDigests: %+v\n)", image.RepoDigests)
+
+	return notFullyEnriched, nil
+}
+
+func (c *CRIClient) getImage(imageSpec *runtime.ImageSpec) (*runtime.Image, error) {
+	images, err := listImages(c, &runtime.ImageFilter{
+		Image: imageSpec,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(images) == 0 {
+		return nil, fmt.Errorf("image %q not found", imageSpec)
+	}
+	if len(images) > 1 {
+		log.Warnf("CRIClient: multiple images (%d) with spec %q. Taking the first one: %+v",
+			len(images), imageSpec, images)
+	}
+
+	return images[0], nil
 }
 
 func (c *CRIClient) GetContainerDetails(containerID string) (*runtimeclient.ContainerDetailsData, error) {
@@ -332,11 +375,14 @@ type CRIContainer interface {
 	GetMetadata() *runtime.ContainerMetadata
 	GetLabels() map[string]string
 	GetImage() *runtime.ImageSpec
+	GetAnnotations() map[string]string
 }
 
 func CRIContainerToContainerData(runtimeName types.RuntimeName, container CRIContainer) *runtimeclient.ContainerData {
 	containerMetadata := container.GetMetadata()
 	image := container.GetImage()
+
+	fmt.Printf("Claudia: container.GetAnnotations %+v\n", container.GetAnnotations())
 
 	containerData := &runtimeclient.ContainerData{
 		Runtime: runtimeclient.RuntimeContainerData{
